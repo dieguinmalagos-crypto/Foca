@@ -22,27 +22,51 @@
       </div>
     </header>
 
+    <section class="card search-card">
+      <div class="search-box">
+        <input type="search" id="searchInput" placeholder="Pesquisar fofocas por palavra-chave..." />
+      </div>
+    </section>
+
     <section class="card auth" id="authSection">
       <h2>Entrar no mural</h2>
-      <p>Crie seu perfil secreto. Só o dono consegue ver quem enviou no painel privado.</p>
-      <form id="profileForm">
+      <p>Para publicar, use seu nick e senha. No feed público todos aparecem como Anônimo.</p>
+
+      <div class="auth-actions">
+        <button id="showLogin" class="btn small">Já tenho conta</button>
+        <button id="showRegister" class="btn ghost small">Criar conta</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
         <label>
-          Nome do perfil
-          <input type="text" id="profileName" maxlength="30" required placeholder="Ex: Estudante8A" />
+          Nick
+          <input type="text" id="loginNick" maxlength="30" required placeholder="Ex: Estudante8A" />
         </label>
         <label>
-          Foto de perfil (URL opcional)
-          <input type="url" id="profileAvatar" placeholder="https://..." />
+          Senha
+          <input type="password" id="loginPassword" minlength="4" required placeholder="Sua senha" />
         </label>
-        <button type="submit" class="btn">Entrar como anônimo</button>
+        <button type="submit" class="btn">Entrar</button>
       </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <label>
+          Nick
+          <input type="text" id="registerNick" maxlength="30" required placeholder="Escolha um nick" />
+        </label>
+        <label>
+          Senha
+          <input type="password" id="registerPassword" minlength="4" required placeholder="Crie uma senha" />
+        </label>
+        <button type="submit" class="btn">Criar conta</button>
+      </form>
+      <p class="auth-message" id="authMessage"></p>
     </section>
 
     <section class="card hidden" id="composerSection">
-      <div class="user-chip" id="sessionInfo"></div>
-
-      <div class="search-box">
-        <input type="search" id="searchInput" placeholder="Pesquisar por palavra-chave da fofoca..." />
+      <div class="composer-top">
+        <div class="user-chip" id="sessionInfo"></div>
+        <button id="logoutBtn" class="btn ghost small">Sair</button>
       </div>
 
       <form id="gossipForm" class="gossip-form">
@@ -66,7 +90,7 @@
 
     <section class="card hidden" id="ownerPanel">
       <h2>Painel privado do dono</h2>
-      <p>Aqui aparece quem escreveu cada fofoca.</p>
+      <p>Aqui você vê autor real e pode apagar fofocas.</p>
       <div id="ownerPosts"></div>
       <button class="btn ghost" id="closeOwner">Fechar painel</button>
     </section>

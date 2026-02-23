@@ -18,7 +18,9 @@ const state = {
 
 const authSection = document.getElementById('authSection');
 const composerSection = document.getElementById('composerSection');
-const profileForm = document.getElementById('profileForm');
+const loginForm = document.getElementById('loginForm');
+const registerForm = document.getElementById('registerForm');
+const authMessage = document.getElementById('authMessage');
 const gossipForm = document.getElementById('gossipForm');
 const feed = document.getElementById('feed');
 const postTemplate = document.getElementById('postTemplate');
@@ -29,21 +31,79 @@ const ownerPosts = document.getElementById('ownerPosts');
 const onlineCount = document.getElementById('onlineCount');
 const typingCount = document.getElementById('typingCount');
 
-profileForm.addEventListener('submit', (event) => {
+function setAuthMessage(message, isError = false) {
+  authMessage.textContent = message;
+  authMessage.style.color = isError ? '#ffb3ce' : '#c3caef';
+}
+
+document.getElementById('showLogin').addEventListener('click', () => {
+  loginForm.classList.remove('hidden');
+  registerForm.classList.add('hidden');
+  setAuthMessage('');
+});
+
+document.getElementById('showRegister').addEventListener('click', () => {
+  registerForm.classList.remove('hidden');
+  loginForm.classList.add('hidden');
+  setAuthMessage('');
+});
+
+registerForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  const name = document.getElementById('profileName').value.trim();
-  const avatar = document.getElementById('profileAvatar').value.trim();
 
-  if (!name) return;
+  const nick = document.getElementById('registerNick').value.trim();
+  const password = document.getElementById('registerPassword').value;
 
-  const user = { id: crypto.randomUUID(), name, avatar };
+  if (!nick || !password) return;
+
+  const nickTaken = state.users.some((user) => user.nick.toLowerCase() === nick.toLowerCase());
+  if (nickTaken) {
+    setAuthMessage('Esse nick já existe. Escolha outro.', true);
+    return;
+  }
+
+  const user = {
+    id: crypto.randomUUID(),
+    nick,
+    password
+  };
+
   state.users.push(user);
   persist(STORAGE_KEYS.users, state.users);
+
+  registerForm.reset();
+  setAuthMessage('Conta criada com sucesso! Agora você já pode entrar.');
+  loginForm.classList.remove('hidden');
+  registerForm.classList.add('hidden');
+});
+
+loginForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+
+  const nick = document.getElementById('loginNick').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  const user = state.users.find(
+    (candidate) => candidate.nick.toLowerCase() === nick.toLowerCase() && candidate.password === password
+  );
+
+  if (!user) {
+    setAuthMessage('Nick ou senha incorretos.', true);
+    return;
+  }
 
   state.currentUserId = user.id;
   localStorage.setItem(STORAGE_KEYS.currentUser, user.id);
 
-  profileForm.reset();
+  loginForm.reset();
+  setAuthMessage('');
+  renderAll();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  stopTyping();
+  state.currentUserId = null;
+  localStorage.removeItem(STORAGE_KEYS.currentUser);
   renderAll();
 });
 
@@ -100,8 +160,19 @@ document.getElementById('closeOwner').addEventListener('click', () => {
   ownerPanel.classList.add('hidden');
 });
 
+ownerPosts.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-delete-id]');
+  if (!button) return;
+
+  const postId = button.dataset.deleteId;
+  state.posts = state.posts.filter((post) => post.id !== postId);
+  persist(STORAGE_KEYS.posts, state.posts);
+  renderAll();
+});
+
 const textArea = document.getElementById('gossipText');
 textArea.addEventListener('input', () => {
+  if (!state.currentUserId) return;
   markTyping(3000);
 });
 
@@ -135,7 +206,7 @@ function renderAll() {
   composerSection.classList.toggle('hidden', !loggedIn);
 
   if (loggedIn) {
-    sessionInfo.textContent = `Você entrou como: ${currentUser.name} (visível apenas no painel do dono)`;
+    sessionInfo.textContent = `Conectado como: ${currentUser.nick} (no feed todos veem "Anônimo")`;
   }
 
   renderFeed();
@@ -160,8 +231,6 @@ function renderFeed() {
 
   filtered.forEach((post) => {
     const node = postTemplate.content.cloneNode(true);
-    const article = node.querySelector('article');
-    article.dataset.id = post.id;
 
     node.querySelector('time').textContent = formatDate(post.createdAt);
     node.querySelector('.post-text').textContent = post.text;
@@ -190,9 +259,13 @@ function renderOwnerPanel() {
     const item = document.createElement('div');
     item.className = 'owner-item';
     item.innerHTML = `
-      <strong>#${state.posts.length - index}</strong> • ${formatDate(post.createdAt)}<br>
-      <strong>Autor:</strong> ${author?.name || 'Perfil removido'}<br>
-      <strong>Texto:</strong> ${escapeHtml(post.text)}
+      <div class="owner-head">
+        <strong>#${state.posts.length - index}</strong>
+        <button class="btn danger small" data-delete-id="${post.id}">Apagar</button>
+      </div>
+      <div>${formatDate(post.createdAt)}</div>
+      <div><strong>Autor:</strong> ${author?.nick || 'Perfil removido'}</div>
+      <div><strong>Texto:</strong> ${escapeHtml(post.text)}</div>
     `;
     ownerPosts.appendChild(item);
   });
