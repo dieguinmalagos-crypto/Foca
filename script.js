@@ -1,11 +1,13 @@
 const SESSION_ID = sessionStorage.getItem('foca_session_id') || crypto.randomUUID();
 sessionStorage.setItem('foca_session_id', SESSION_ID);
+
 const STORAGE_KEYS = { token: 'foca_token', user: 'foca_user' };
 
 const state = {
   token: localStorage.getItem(STORAGE_KEYS.token),
   user: load(STORAGE_KEYS.user, null),
   posts: [],
+  users: [],
   imageBase64: null,
   ownerMode: false
 };
@@ -22,14 +24,13 @@ const sessionInfo = document.getElementById('sessionInfo');
 const searchInput = document.getElementById('searchInput');
 const ownerPanel = document.getElementById('ownerPanel');
 const ownerPosts = document.getElementById('ownerPosts');
+const ownerUsers = document.getElementById('ownerUsers');
 const onlineCount = document.getElementById('onlineCount');
 const typingCount = document.getElementById('typingCount');
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
-  if (options.body && !headers['Content-Type']) {
-    headers['Content-Type'] = 'application/json';
-  }
+  if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
 
   let response;
@@ -40,8 +41,22 @@ async function api(path, options = {}) {
   }
 
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Erro de requisição');
+  if (!response.ok) {
+    if (response.status === 401 && state.token && !['/api/login', '/api/register'].includes(path)) {
+      clearSession();
+      renderAll();
+    }
+    throw new Error(body.error || 'Erro de requisição');
+  }
   return body;
+}
+
+function clearSession() {
+  state.token = null;
+  state.user = null;
+  state.ownerMode = false;
+  localStorage.removeItem(STORAGE_KEYS.token);
+  localStorage.removeItem(STORAGE_KEYS.user);
 }
 
 function setAuthMessage(message, isError = false) {
@@ -66,17 +81,14 @@ registerForm.addEventListener('submit', async (event) => {
   const nick = document.getElementById('registerNick').value.trim();
   const password = document.getElementById('registerPassword').value;
   try {
-    const result = await api('/api/register', {
-      method: 'POST',
-      body: JSON.stringify({ nick, password })
-    });
+    const result = await api('/api/register', { method: 'POST', body: JSON.stringify({ nick, password }) });
     state.token = result.token;
     state.user = result.user;
     persistSession();
     registerForm.reset();
-    setAuthMessage(result.user?.isAdmin ? 'Conta ADMIN criada e login feito!' : 'Conta criada com sucesso!');
+    setAuthMessage('Conta criada com sucesso!');
     renderAll();
-    await refreshPosts();
+    await refreshAllData();
   } catch (err) {
     setAuthMessage(err.message, true);
   }
@@ -87,17 +99,14 @@ loginForm.addEventListener('submit', async (event) => {
   const nick = document.getElementById('loginNick').value.trim();
   const password = document.getElementById('loginPassword').value;
   try {
-    const result = await api('/api/login', {
-      method: 'POST',
-      body: JSON.stringify({ nick, password })
-    });
+    const result = await api('/api/login', { method: 'POST', body: JSON.stringify({ nick, password }) });
     state.token = result.token;
     state.user = result.user;
     persistSession();
     loginForm.reset();
     setAuthMessage('');
     renderAll();
-    await refreshPosts();
+    await refreshAllData();
   } catch (err) {
     setAuthMessage(err.message, true);
   }
@@ -107,13 +116,10 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   try {
     await api('/api/logout', { method: 'POST' });
   } catch {}
-  state.token = null;
-  state.user = null;
-  state.ownerMode = false;
-  localStorage.removeItem(STORAGE_KEYS.token);
-  localStorage.removeItem(STORAGE_KEYS.user);
+  clearSession();
+  state.posts = [];
+  state.users = [];
   renderAll();
-  await refreshPosts();
 });
 
 searchInput.addEventListener('input', () => renderFeed());
@@ -132,16 +138,12 @@ gossipForm.addEventListener('submit', async (event) => {
   if (!text) return;
 
   try {
-    await api('/api/posts', {
-      method: 'POST',
-      body: JSON.stringify({ text, image: state.imageBase64 })
-    });
-
+    await api('/api/posts', { method: 'POST', body: JSON.stringify({ text, image: state.imageBase64 }) });
     textEl.value = '';
     document.getElementById('gossipImage').value = '';
     state.imageBase64 = null;
     await markPresence(0);
-    await refreshPosts();
+    await refreshAllData();
   } catch (err) {
     alert(err.message);
   }
@@ -149,18 +151,18 @@ gossipForm.addEventListener('submit', async (event) => {
 
 document.getElementById('ownerAccess').addEventListener('click', async () => {
   if (!state.user?.isAdmin) {
-    alert('Somente a conta admin pode abrir esse painel.');
+    alert('Somente o admin pode abrir esse painel.');
     return;
   }
   state.ownerMode = !state.ownerMode;
   ownerPanel.classList.toggle('hidden', !state.ownerMode);
-  await refreshPosts();
+  await refreshAllData();
 });
 
-document.getElementById('closeOwner').addEventListener('click', async () => {
+document.getElementById('closeOwner').addEventListener('click', () => {
   state.ownerMode = false;
   ownerPanel.classList.add('hidden');
-  await refreshPosts();
+  renderOwnerPanel();
 });
 
 ownerPosts.addEventListener('click', async (event) => {
@@ -170,7 +172,7 @@ ownerPosts.addEventListener('click', async (event) => {
   if (del) {
     try {
       await api(`/api/admin/posts/${del.dataset.deleteId}`, { method: 'DELETE' });
-      await refreshPosts();
+      await refreshAllData();
     } catch (err) {
       alert(err.message);
     }
@@ -180,13 +182,10 @@ ownerPosts.addEventListener('click', async (event) => {
     if (!confirm('Tem certeza? Isso apaga tudo do site.')) return;
     try {
       await api('/api/admin/reset', { method: 'POST' });
-      state.ownerMode = false;
+      clearSession();
+      state.posts = [];
+      state.users = [];
       ownerPanel.classList.add('hidden');
-      state.token = null;
-      state.user = null;
-      localStorage.removeItem(STORAGE_KEYS.token);
-      localStorage.removeItem(STORAGE_KEYS.user);
-      await refreshPosts();
       renderAll();
       alert('Site resetado com sucesso.');
     } catch (err) {
@@ -195,29 +194,58 @@ ownerPosts.addEventListener('click', async (event) => {
   }
 });
 
+ownerUsers.addEventListener('click', async (event) => {
+  const banBtn = event.target.closest('[data-ban-id]');
+  if (!banBtn) return;
+  if (!confirm('Banir essa conta e apagar suas fofocas?')) return;
+
+  try {
+    await api(`/api/admin/users/${banBtn.dataset.banId}`, { method: 'DELETE' });
+    await refreshAllData();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
 const textArea = document.getElementById('gossipText');
 textArea.addEventListener('input', () => {
-  markPresence(Date.now() + 3000);
+  if (state.token) markPresence(Date.now() + 3000);
 });
 
 window.addEventListener('beforeunload', () => {
   navigator.sendBeacon(`/api/presence?sessionId=${encodeURIComponent(SESSION_ID)}`, '');
 });
 
-setInterval(refreshPosts, 4000);
+setInterval(() => refreshAllData(), 4000);
 setInterval(refreshPresence, 2000);
 setInterval(() => markPresence(), 5000);
 
-async function refreshPosts() {
-  try {
-    const result = state.ownerMode ? await api('/api/admin/posts') : await api('/api/posts');
-    state.posts = result.posts;
+async function refreshAllData() {
+  if (!state.token) {
+    state.posts = [];
+    state.users = [];
     renderFeed();
     renderOwnerPanel();
-  } catch {
+    return;
+  }
+
+  try {
+    const posts = state.ownerMode ? await api('/api/admin/posts') : await api('/api/posts');
+    state.posts = posts.posts;
+
     if (state.ownerMode) {
-      state.ownerMode = false;
-      ownerPanel.classList.add('hidden');
+      const users = await api('/api/admin/users');
+      state.users = users.users;
+    } else {
+      state.users = [];
+    }
+
+    renderFeed();
+    renderOwnerPanel();
+  } catch (err) {
+    if (err.message.includes('login') || err.message.includes('Não autorizado')) {
+      clearSession();
+      renderAll();
     }
   }
 }
@@ -237,6 +265,11 @@ function renderAll() {
 }
 
 function renderFeed() {
+  if (!state.token) {
+    feed.innerHTML = '<div class="card">Faça login para ver as fofocas.</div>';
+    return;
+  }
+
   const query = searchInput.value.trim().toLowerCase();
   const filtered = state.posts.filter((post) => {
     if (!query) return true;
@@ -267,27 +300,45 @@ function renderFeed() {
 
 function renderOwnerPanel() {
   if (!state.ownerMode) return;
+
   ownerPosts.innerHTML = '';
+  ownerUsers.innerHTML = '';
+
   ownerPosts.insertAdjacentHTML('beforeend', '<button id="resetSiteBtn" class="btn danger small">Resetar site</button>');
 
   if (!state.posts.length) {
     ownerPosts.insertAdjacentHTML('beforeend', '<p>Nenhuma fofoca publicada ainda.</p>');
-    return;
+  } else {
+    state.posts.forEach((post, index) => {
+      ownerPosts.insertAdjacentHTML('beforeend', `
+        <div class="owner-item">
+          <div class="owner-head">
+            <strong>#${state.posts.length - index}</strong>
+            <button class="btn danger small" data-delete-id="${post.id}">Apagar</button>
+          </div>
+          <div>${formatDate(post.createdAt)}</div>
+          <div><strong>Nick:</strong> ${escapeHtml(post.authorNick || '-')}</div>
+          <div><strong>Texto:</strong> ${escapeHtml(post.text)}</div>
+        </div>
+      `);
+    });
   }
 
-  state.posts.forEach((post, index) => {
-    ownerPosts.insertAdjacentHTML('beforeend', `
-      <div class="owner-item">
-        <div class="owner-head">
-          <strong>#${state.posts.length - index}</strong>
-          <button class="btn danger small" data-delete-id="${post.id}">Apagar</button>
+  const usersWithoutAdmin = state.users.filter((u) => !u.isAdmin);
+  if (!usersWithoutAdmin.length) {
+    ownerUsers.innerHTML = '<p>Nenhuma conta para banir.</p>';
+  } else {
+    usersWithoutAdmin.forEach((u) => {
+      ownerUsers.insertAdjacentHTML('beforeend', `
+        <div class="owner-item">
+          <div class="owner-head">
+            <strong>${escapeHtml(u.nick)}</strong>
+            <button class="btn danger small" data-ban-id="${u.id}">Banir</button>
+          </div>
         </div>
-        <div>${formatDate(post.createdAt)}</div>
-        <div><strong>Nick:</strong> ${escapeHtml(post.authorNick || '-')}</div>
-        <div><strong>Texto:</strong> ${escapeHtml(post.text)}</div>
-      </div>
-    `);
-  });
+      `);
+    });
+  }
 }
 
 async function markPresence(typingUntil = 0) {
@@ -346,6 +397,6 @@ function fileToBase64(file) {
 }
 
 renderAll();
-refreshPosts();
+refreshAllData();
 refreshPresence();
 markPresence();

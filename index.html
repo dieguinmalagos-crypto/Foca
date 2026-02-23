@@ -30,7 +30,7 @@
 
     <section class="card auth" id="authSection">
       <h2>Entrar no mural</h2>
-      <p>Para publicar, use seu nick e senha. No feed público todos aparecem como Anônimo.</p>
+      <p>Para publicar e ver fofocas, use seu nick e senha.</p>
 
       <div class="auth-actions">
         <button id="showLogin" class="btn small">Já tenho conta</button>
@@ -40,7 +40,7 @@
       <form id="loginForm" class="auth-form">
         <label>
           Nick
-          <input type="text" id="loginNick" maxlength="30" required placeholder="Ex: Estudante8A" />
+          <input type="text" id="loginNick" maxlength="30" required placeholder="Seu nick" />
         </label>
         <label>
           Senha
@@ -82,15 +82,17 @@
 
         <button type="submit" class="btn">Publicar como Anônimo</button>
       </form>
-
     </section>
 
     <section class="feed" id="feed"></section>
 
     <section class="card hidden" id="ownerPanel">
       <h2>Painel privado do dono</h2>
-      <p>Aqui você vê autor real e pode apagar fofocas.</p>
+      <p>Gerencie fofocas e contas.</p>
       <div id="ownerPosts"></div>
+      <hr>
+      <h3>Contas criadas</h3>
+      <div id="ownerUsers"></div>
       <button class="btn ghost" id="closeOwner">Fechar painel</button>
     </section>
   </main>
@@ -108,7 +110,6 @@
       <img class="post-image hidden" alt="Foto da fofoca" />
     </article>
   </template>
-
 
   <button id="ownerAccess" class="admin-fab" title="Painel do dono">ADM</button>
 

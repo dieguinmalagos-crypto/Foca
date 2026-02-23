@@ -4,7 +4,6 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 4173;
-const OWNER_PASS = process.env.OWNER_PASS || 'FOFOCA8A_DONO';
 const DATA_FILE = path.join(__dirname, 'data.json');
 const ADMIN_NICK = 'Enzo_labubu';
 const ADMIN_PASSWORD = '20121710';
@@ -13,12 +12,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml'
+  '.json': 'application/json; charset=utf-8'
 };
 
 function loadData() {
@@ -49,9 +43,7 @@ function json(res, status, body) {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
-    req.on('data', (c) => {
-      raw += c;
-    });
+    req.on('data', (c) => (raw += c));
     req.on('end', () => {
       if (!raw) return resolve({});
       try {
@@ -83,7 +75,6 @@ function userFromToken(req) {
 }
 
 function adminAllowed(req) {
-  if (req.headers['x-owner-pass'] === OWNER_PASS) return true;
   const user = userFromToken(req);
   return Boolean(user?.isAdmin);
 }
@@ -116,6 +107,14 @@ function adminPosts() {
   });
 }
 
+function adminUsers() {
+  return db.users.map((u) => ({
+    id: u.id,
+    nick: u.nick,
+    isAdmin: Boolean(u.isAdmin)
+  }));
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -125,16 +124,10 @@ const server = http.createServer(async (req, res) => {
       const normalizedNick = String(nick || '').trim();
       const normalizedPassword = String(password || '');
 
-      if (!normalizedNick || !normalizedPassword) {
-        return json(res, 400, { error: 'Nick e senha obrigatórios.' });
-      }
+      if (!normalizedNick || !normalizedPassword) return json(res, 400, { error: 'Nick e senha obrigatórios.' });
 
-      if (db.users.length === 0) {
-        if (normalizedNick !== ADMIN_NICK || normalizedPassword !== ADMIN_PASSWORD) {
-          return json(res, 403, {
-            error: 'A primeira conta precisa ser a conta de administrador.'
-          });
-        }
+      if (db.users.length === 0 && (normalizedNick !== ADMIN_NICK || normalizedPassword !== ADMIN_PASSWORD)) {
+        return json(res, 403, { error: 'Cadastro indisponível no momento.' });
       }
 
       const exists = db.users.some((u) => u.nick.toLowerCase() === normalizedNick.toLowerCase());
@@ -152,10 +145,7 @@ const server = http.createServer(async (req, res) => {
       db.sessions[t] = user.id;
       saveData();
 
-      return json(res, 201, {
-        token: t,
-        user: { id: user.id, nick: user.nick, isAdmin: user.isAdmin }
-      });
+      return json(res, 201, { token: t, user: { id: user.id, nick: user.nick, isAdmin: user.isAdmin } });
     } catch {
       return json(res, 400, { error: 'JSON inválido.' });
     }
@@ -180,20 +170,21 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/logout' && req.method === 'POST') {
     const t = sessionFrom(req);
-    if (t) {
-      delete db.sessions[t];
-      saveData();
-    }
+    if (t) delete db.sessions[t];
+    saveData();
     return json(res, 200, { ok: true });
   }
 
   if (url.pathname === '/api/posts' && req.method === 'GET') {
+    const user = userFromToken(req);
+    if (!user) return json(res, 401, { error: 'Faça login para ver as fofocas.' });
     return json(res, 200, { posts: publicPosts() });
   }
 
   if (url.pathname === '/api/posts' && req.method === 'POST') {
     const user = userFromToken(req);
     if (!user) return json(res, 401, { error: 'Não autorizado.' });
+
     try {
       const { text, image } = await parseBody(req);
       if (!text || !String(text).trim()) return json(res, 400, { error: 'Texto obrigatório.' });
@@ -215,6 +206,27 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/admin/posts' && req.method === 'GET') {
     if (!adminAllowed(req)) return json(res, 401, { error: 'Apenas admin pode acessar.' });
     return json(res, 200, { posts: adminPosts() });
+  }
+
+  if (url.pathname === '/api/admin/users' && req.method === 'GET') {
+    if (!adminAllowed(req)) return json(res, 401, { error: 'Apenas admin pode acessar.' });
+    return json(res, 200, { users: adminUsers() });
+  }
+
+  if (url.pathname.startsWith('/api/admin/users/') && req.method === 'DELETE') {
+    if (!adminAllowed(req)) return json(res, 401, { error: 'Apenas admin pode banir.' });
+    const userId = url.pathname.split('/').pop();
+    const requester = userFromToken(req);
+    if (requester?.id === userId) return json(res, 400, { error: 'Admin não pode banir a própria conta.' });
+
+    db.users = db.users.filter((u) => u.id !== userId);
+    db.posts = db.posts.filter((p) => p.authorId !== userId);
+    Object.entries(db.sessions).forEach(([k, v]) => {
+      if (v === userId) delete db.sessions[k];
+    });
+
+    saveData();
+    return json(res, 200, { ok: true });
   }
 
   if (url.pathname.startsWith('/api/admin/posts/') && req.method === 'DELETE') {
@@ -256,16 +268,12 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/presence' && req.method === 'DELETE') {
     const sid = url.searchParams.get('sessionId');
-    if (sid) {
-      delete db.presence[sid];
-      saveData();
-    }
+    if (sid) delete db.presence[sid];
+    saveData();
     return json(res, 200, { ok: true });
   }
 
-  const filePath =
-    url.pathname === '/' ? path.join(__dirname, 'index.html') : path.join(__dirname, decodeURIComponent(url.pathname));
-
+  const filePath = url.pathname === '/' ? path.join(__dirname, 'index.html') : path.join(__dirname, decodeURIComponent(url.pathname));
   if (!filePath.startsWith(__dirname)) {
     res.writeHead(403);
     return res.end('Forbidden');
@@ -284,5 +292,4 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Servidor em http://0.0.0.0:${PORT}`);
-  console.log(`Primeira conta admin obrigatória: ${ADMIN_NICK}`);
 });
