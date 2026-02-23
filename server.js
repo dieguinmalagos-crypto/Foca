@@ -6,6 +6,8 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 4173;
 const OWNER_PASS = process.env.OWNER_PASS || 'FOFOCA8A_DONO';
 const DATA_FILE = path.join(__dirname, 'data.json');
+const ADMIN_NICK = 'Enzo_labubu';
+const ADMIN_PASSWORD = '20121710';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -47,10 +49,16 @@ function json(res, status, body) {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let raw = '';
-    req.on('data', (c) => { raw += c; });
+    req.on('data', (c) => {
+      raw += c;
+    });
     req.on('end', () => {
       if (!raw) return resolve({});
-      try { resolve(JSON.parse(raw)); } catch (err) { reject(err); }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (err) {
+        reject(err);
+      }
     });
     req.on('error', reject);
   });
@@ -75,7 +83,9 @@ function userFromToken(req) {
 }
 
 function adminAllowed(req) {
-  return req.headers['x-owner-pass'] === OWNER_PASS;
+  if (req.headers['x-owner-pass'] === OWNER_PASS) return true;
+  const user = userFromToken(req);
+  return Boolean(user?.isAdmin);
 }
 
 function cleanupPresence() {
@@ -113,16 +123,40 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/register' && req.method === 'POST') {
     try {
       const { nick, password } = await parseBody(req);
-      if (!nick || !password) return json(res, 400, { error: 'Nick e senha obrigatórios.' });
-      const exists = db.users.some((u) => u.nick.toLowerCase() === String(nick).toLowerCase());
+      const normalizedNick = String(nick || '').trim();
+      const normalizedPassword = String(password || '');
+
+      if (!normalizedNick || !normalizedPassword) {
+        return json(res, 400, { error: 'Nick e senha obrigatórios.' });
+      }
+
+      if (db.users.length === 0) {
+        if (normalizedNick !== ADMIN_NICK || normalizedPassword !== ADMIN_PASSWORD) {
+          return json(res, 403, {
+            error: `A primeira conta deve ser o admin: ${ADMIN_NICK}`
+          });
+        }
+      }
+
+      const exists = db.users.some((u) => u.nick.toLowerCase() === normalizedNick.toLowerCase());
       if (exists) return json(res, 409, { error: 'Nick já existe.' });
 
-      const user = { id: crypto.randomUUID(), nick: String(nick).trim(), password: String(password) };
+      const user = {
+        id: crypto.randomUUID(),
+        nick: normalizedNick,
+        password: normalizedPassword,
+        isAdmin: db.users.length === 0
+      };
+
       db.users.push(user);
       const t = token();
       db.sessions[t] = user.id;
       saveData();
-      return json(res, 201, { token: t, user: { id: user.id, nick: user.nick } });
+
+      return json(res, 201, {
+        token: t,
+        user: { id: user.id, nick: user.nick, isAdmin: user.isAdmin }
+      });
     } catch {
       return json(res, 400, { error: 'JSON inválido.' });
     }
@@ -131,12 +165,15 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/login' && req.method === 'POST') {
     try {
       const { nick, password } = await parseBody(req);
-      const user = db.users.find((u) => u.nick.toLowerCase() === String(nick).toLowerCase() && u.password === String(password));
+      const user = db.users.find(
+        (u) => u.nick.toLowerCase() === String(nick).toLowerCase() && u.password === String(password)
+      );
       if (!user) return json(res, 401, { error: 'Credenciais inválidas.' });
+
       const t = token();
       db.sessions[t] = user.id;
       saveData();
-      return json(res, 200, { token: t, user: { id: user.id, nick: user.nick } });
+      return json(res, 200, { token: t, user: { id: user.id, nick: user.nick, isAdmin: Boolean(user.isAdmin) } });
     } catch {
       return json(res, 400, { error: 'JSON inválido.' });
     }
@@ -177,12 +214,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/admin/posts' && req.method === 'GET') {
-    if (!adminAllowed(req)) return json(res, 401, { error: 'Senha do dono inválida.' });
+    if (!adminAllowed(req)) return json(res, 401, { error: 'Apenas admin pode acessar.' });
     return json(res, 200, { posts: adminPosts() });
   }
 
   if (url.pathname.startsWith('/api/admin/posts/') && req.method === 'DELETE') {
-    if (!adminAllowed(req)) return json(res, 401, { error: 'Senha do dono inválida.' });
+    if (!adminAllowed(req)) return json(res, 401, { error: 'Apenas admin pode apagar.' });
     const id = url.pathname.split('/').pop();
     db.posts = db.posts.filter((p) => p.id !== id);
     saveData();
@@ -190,7 +227,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/admin/reset' && req.method === 'POST') {
-    if (!adminAllowed(req)) return json(res, 401, { error: 'Senha do dono inválida.' });
+    if (!adminAllowed(req)) return json(res, 401, { error: 'Apenas admin pode resetar.' });
     db = { users: [], posts: [], sessions: {}, presence: {} };
     saveData();
     return json(res, 200, { ok: true });
@@ -227,9 +264,8 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true });
   }
 
-  const filePath = url.pathname === '/'
-    ? path.join(__dirname, 'index.html')
-    : path.join(__dirname, decodeURIComponent(url.pathname));
+  const filePath =
+    url.pathname === '/' ? path.join(__dirname, 'index.html') : path.join(__dirname, decodeURIComponent(url.pathname));
 
   if (!filePath.startsWith(__dirname)) {
     res.writeHead(403);
@@ -249,4 +285,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Servidor em http://0.0.0.0:${PORT}`);
+  console.log(`Primeira conta admin obrigatória: ${ADMIN_NICK}`);
 });

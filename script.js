@@ -7,8 +7,7 @@ const state = {
   user: load(STORAGE_KEYS.user, null),
   posts: [],
   imageBase64: null,
-  ownerMode: false,
-  ownerPass: null
+  ownerMode: false
 };
 
 const authSection = document.getElementById('authSection');
@@ -27,9 +26,19 @@ const onlineCount = document.getElementById('onlineCount');
 const typingCount = document.getElementById('typingCount');
 
 async function api(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const response = await fetch(path, { ...options, headers });
+
+  let response;
+  try {
+    response = await fetch(path, { ...options, headers });
+  } catch {
+    throw new Error('Falha de conexão. Inicie com: node server.js');
+  }
+
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || 'Erro de requisição');
   return body;
@@ -65,7 +74,7 @@ registerForm.addEventListener('submit', async (event) => {
     state.user = result.user;
     persistSession();
     registerForm.reset();
-    setAuthMessage('Conta criada e login feito!');
+    setAuthMessage(result.user?.isAdmin ? 'Conta ADMIN criada e login feito!' : 'Conta criada com sucesso!');
     renderAll();
     await refreshPosts();
   } catch (err) {
@@ -95,14 +104,16 @@ loginForm.addEventListener('submit', async (event) => {
 });
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
-  try { await api('/api/logout', { method: 'POST' }); } catch {}
+  try {
+    await api('/api/logout', { method: 'POST' });
+  } catch {}
   state.token = null;
   state.user = null;
   state.ownerMode = false;
-  state.ownerPass = null;
   localStorage.removeItem(STORAGE_KEYS.token);
   localStorage.removeItem(STORAGE_KEYS.user);
   renderAll();
+  await refreshPosts();
 });
 
 searchInput.addEventListener('input', () => renderFeed());
@@ -115,6 +126,7 @@ document.getElementById('gossipImage').addEventListener('change', async (event) 
 gossipForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!state.token) return;
+
   const textEl = document.getElementById('gossipText');
   const text = textEl.value.trim();
   if (!text) return;
@@ -124,10 +136,11 @@ gossipForm.addEventListener('submit', async (event) => {
       method: 'POST',
       body: JSON.stringify({ text, image: state.imageBase64 })
     });
+
     textEl.value = '';
     document.getElementById('gossipImage').value = '';
     state.imageBase64 = null;
-    await markTyping(0);
+    await markPresence(0);
     await refreshPosts();
   } catch (err) {
     alert(err.message);
@@ -135,20 +148,13 @@ gossipForm.addEventListener('submit', async (event) => {
 });
 
 document.getElementById('ownerAccess').addEventListener('click', async () => {
-  const pass = prompt('Senha do dono:');
-  if (!pass) return;
-  try {
-    const result = await fetch('/api/admin/posts', { headers: { 'x-owner-pass': pass } });
-    const body = await result.json();
-    if (!result.ok) throw new Error(body.error || 'Senha inválida');
-    state.ownerMode = true;
-    state.ownerPass = pass;
-    state.posts = body.posts;
-    ownerPanel.classList.remove('hidden');
-    renderAll();
-  } catch (err) {
-    alert(err.message);
+  if (!state.user?.isAdmin) {
+    alert('Somente a conta admin pode abrir esse painel.');
+    return;
   }
+  state.ownerMode = !state.ownerMode;
+  ownerPanel.classList.toggle('hidden', !state.ownerMode);
+  await refreshPosts();
 });
 
 document.getElementById('closeOwner').addEventListener('click', async () => {
@@ -160,30 +166,38 @@ document.getElementById('closeOwner').addEventListener('click', async () => {
 ownerPosts.addEventListener('click', async (event) => {
   const del = event.target.closest('[data-delete-id]');
   const reset = event.target.closest('#resetSiteBtn');
+
   if (del) {
-    if (!state.ownerMode || !state.ownerPass) return;
-    await fetch(`/api/admin/posts/${del.dataset.deleteId}`, {
-      method: 'DELETE',
-      headers: { 'x-owner-pass': state.ownerPass }
-    });
-    await refreshPosts();
-    if (state.ownerMode) await loadAdminPosts();
+    try {
+      await api(`/api/admin/posts/${del.dataset.deleteId}`, { method: 'DELETE' });
+      await refreshPosts();
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   if (reset) {
     if (!confirm('Tem certeza? Isso apaga tudo do site.')) return;
-    await fetch('/api/admin/reset', { method: 'POST', headers: { 'x-owner-pass': state.ownerPass } });
-    state.ownerMode = false;
-    state.ownerPass = null;
-    ownerPanel.classList.add('hidden');
-    await refreshPosts();
-    alert('Site resetado.');
+    try {
+      await api('/api/admin/reset', { method: 'POST' });
+      state.ownerMode = false;
+      ownerPanel.classList.add('hidden');
+      state.token = null;
+      state.user = null;
+      localStorage.removeItem(STORAGE_KEYS.token);
+      localStorage.removeItem(STORAGE_KEYS.user);
+      await refreshPosts();
+      renderAll();
+      alert('Site resetado. A primeira conta deve ser Enzo_labubu / 20121710.');
+    } catch (err) {
+      alert(err.message);
+    }
   }
 });
 
 const textArea = document.getElementById('gossipText');
 textArea.addEventListener('input', () => {
-  markTyping(Date.now() + 3000);
+  markPresence(Date.now() + 3000);
 });
 
 window.addEventListener('beforeunload', () => {
@@ -196,32 +210,28 @@ setInterval(() => markPresence(), 5000);
 
 async function refreshPosts() {
   try {
-    if (state.ownerMode) {
-      await loadAdminPosts();
-    } else {
-      const result = await api('/api/posts', { method: 'GET' });
-      state.posts = result.posts;
-    }
+    const result = state.ownerMode ? await api('/api/admin/posts') : await api('/api/posts');
+    state.posts = result.posts;
     renderFeed();
     renderOwnerPanel();
-  } catch {}
-}
-
-async function loadAdminPosts() {
-  if (!state.ownerPass) return;
-  const result = await fetch('/api/admin/posts', { headers: { 'x-owner-pass': state.ownerPass } });
-  const body = await result.json();
-  if (!result.ok) throw new Error(body.error || 'Erro admin');
-  state.posts = body.posts;
+  } catch {
+    if (state.ownerMode) {
+      state.ownerMode = false;
+      ownerPanel.classList.add('hidden');
+    }
+  }
 }
 
 function renderAll() {
   const loggedIn = Boolean(state.user && state.token);
   authSection.classList.toggle('hidden', loggedIn);
   composerSection.classList.toggle('hidden', !loggedIn);
+
   if (loggedIn) {
-    sessionInfo.textContent = `Conectado como: ${state.user.nick} (no feed normal: Anônimo)`;
+    const role = state.user.isAdmin ? 'ADMIN' : 'aluno';
+    sessionInfo.textContent = `Conectado como: ${state.user.nick} (${role})`;
   }
+
   renderFeed();
   renderOwnerPanel();
 }
@@ -244,11 +254,13 @@ function renderFeed() {
     node.querySelector('h3').textContent = state.ownerMode ? (post.authorLabel || 'Anônimo') : 'Anônimo';
     node.querySelector('time').textContent = formatDate(post.createdAt);
     node.querySelector('.post-text').textContent = post.text;
+
     const img = node.querySelector('.post-image');
     if (post.image) {
       img.src = post.image;
       img.classList.remove('hidden');
     }
+
     feed.appendChild(node);
   });
 }
