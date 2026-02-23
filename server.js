@@ -111,7 +111,6 @@ function adminPosts() {
     return {
       ...post,
       authorNick: u?.nick || 'Removido',
-      authorPassword: u?.password || '-',
       authorLabel: u?.nick || 'Anônimo'
     };
   });
@@ -133,7 +132,7 @@ const server = http.createServer(async (req, res) => {
       if (db.users.length === 0) {
         if (normalizedNick !== ADMIN_NICK || normalizedPassword !== ADMIN_PASSWORD) {
           return json(res, 403, {
-            error: `A primeira conta deve ser o admin: ${ADMIN_NICK}`
+            error: 'A primeira conta precisa ser a conta de administrador.'
           });
         }
       }

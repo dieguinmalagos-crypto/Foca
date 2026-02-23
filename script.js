@@ -188,7 +188,7 @@ ownerPosts.addEventListener('click', async (event) => {
       localStorage.removeItem(STORAGE_KEYS.user);
       await refreshPosts();
       renderAll();
-      alert('Site resetado. A primeira conta deve ser Enzo_labubu / 20121710.');
+      alert('Site resetado com sucesso.');
     } catch (err) {
       alert(err.message);
     }
@@ -284,7 +284,6 @@ function renderOwnerPanel() {
         </div>
         <div>${formatDate(post.createdAt)}</div>
         <div><strong>Nick:</strong> ${escapeHtml(post.authorNick || '-')}</div>
-        <div><strong>Senha:</strong> ${escapeHtml(post.authorPassword || '-')}</div>
         <div><strong>Texto:</strong> ${escapeHtml(post.text)}</div>
       </div>
     `);
