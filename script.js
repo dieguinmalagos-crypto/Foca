@@ -1,19 +1,14 @@
-const STORAGE_KEYS = {
-  users: 'foca_users',
-  posts: 'foca_posts',
-  currentUser: 'foca_current_user',
-  presence: 'foca_presence'
-};
-
-const OWNER_PASS = 'FOFOCA8A_DONO';
-const SESSION_ID = crypto.randomUUID();
+const SESSION_ID = sessionStorage.getItem('foca_session_id') || crypto.randomUUID();
+sessionStorage.setItem('foca_session_id', SESSION_ID);
+const STORAGE_KEYS = { token: 'foca_token', user: 'foca_user' };
 
 const state = {
-  users: load(STORAGE_KEYS.users, []),
-  posts: load(STORAGE_KEYS.posts, []),
-  currentUserId: localStorage.getItem(STORAGE_KEYS.currentUser),
+  token: localStorage.getItem(STORAGE_KEYS.token),
+  user: load(STORAGE_KEYS.user, null),
+  posts: [],
   imageBase64: null,
-  ownerMode: false
+  ownerMode: false,
+  ownerPass: null
 };
 
 const authSection = document.getElementById('authSection');
@@ -30,6 +25,15 @@ const ownerPanel = document.getElementById('ownerPanel');
 const ownerPosts = document.getElementById('ownerPosts');
 const onlineCount = document.getElementById('onlineCount');
 const typingCount = document.getElementById('typingCount');
+
+async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const response = await fetch(path, { ...options, headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Erro de requisição');
+  return body;
+}
 
 function setAuthMessage(message, isError = false) {
   authMessage.textContent = message;
@@ -48,62 +52,56 @@ document.getElementById('showRegister').addEventListener('click', () => {
   setAuthMessage('');
 });
 
-registerForm.addEventListener('submit', (event) => {
+registerForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-
   const nick = document.getElementById('registerNick').value.trim();
   const password = document.getElementById('registerPassword').value;
-
-  if (!nick || !password) return;
-
-  const nickTaken = state.users.some((user) => user.nick.toLowerCase() === nick.toLowerCase());
-  if (nickTaken) {
-    setAuthMessage('Esse nick já existe. Escolha outro.', true);
-    return;
+  try {
+    const result = await api('/api/register', {
+      method: 'POST',
+      body: JSON.stringify({ nick, password })
+    });
+    state.token = result.token;
+    state.user = result.user;
+    persistSession();
+    registerForm.reset();
+    setAuthMessage('Conta criada e login feito!');
+    renderAll();
+    await refreshPosts();
+  } catch (err) {
+    setAuthMessage(err.message, true);
   }
-
-  const user = {
-    id: crypto.randomUUID(),
-    nick,
-    password
-  };
-
-  state.users.push(user);
-  persist(STORAGE_KEYS.users, state.users);
-
-  registerForm.reset();
-  setAuthMessage('Conta criada com sucesso! Agora você já pode entrar.');
-  loginForm.classList.remove('hidden');
-  registerForm.classList.add('hidden');
 });
 
-loginForm.addEventListener('submit', (event) => {
+loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-
   const nick = document.getElementById('loginNick').value.trim();
   const password = document.getElementById('loginPassword').value;
-
-  const user = state.users.find(
-    (candidate) => candidate.nick.toLowerCase() === nick.toLowerCase() && candidate.password === password
-  );
-
-  if (!user) {
-    setAuthMessage('Nick ou senha incorretos.', true);
-    return;
+  try {
+    const result = await api('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ nick, password })
+    });
+    state.token = result.token;
+    state.user = result.user;
+    persistSession();
+    loginForm.reset();
+    setAuthMessage('');
+    renderAll();
+    await refreshPosts();
+  } catch (err) {
+    setAuthMessage(err.message, true);
   }
-
-  state.currentUserId = user.id;
-  localStorage.setItem(STORAGE_KEYS.currentUser, user.id);
-
-  loginForm.reset();
-  setAuthMessage('');
-  renderAll();
 });
 
-document.getElementById('logoutBtn').addEventListener('click', () => {
-  stopTyping();
-  state.currentUserId = null;
-  localStorage.removeItem(STORAGE_KEYS.currentUser);
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try { await api('/api/logout', { method: 'POST' }); } catch {}
+  state.token = null;
+  state.user = null;
+  state.ownerMode = false;
+  state.ownerPass = null;
+  localStorage.removeItem(STORAGE_KEYS.token);
+  localStorage.removeItem(STORAGE_KEYS.user);
   renderAll();
 });
 
@@ -111,108 +109,121 @@ searchInput.addEventListener('input', () => renderFeed());
 
 document.getElementById('gossipImage').addEventListener('change', async (event) => {
   const file = event.target.files?.[0];
-  if (!file) {
-    state.imageBase64 = null;
-    return;
-  }
-  state.imageBase64 = await fileToBase64(file);
+  state.imageBase64 = file ? await fileToBase64(file) : null;
 });
 
-gossipForm.addEventListener('submit', (event) => {
+gossipForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (!state.currentUserId) return;
-
+  if (!state.token) return;
   const textEl = document.getElementById('gossipText');
   const text = textEl.value.trim();
   if (!text) return;
 
-  const post = {
-    id: crypto.randomUUID(),
-    text,
-    image: state.imageBase64,
-    authorId: state.currentUserId,
-    createdAt: new Date().toISOString()
-  };
-
-  state.posts.unshift(post);
-  persist(STORAGE_KEYS.posts, state.posts);
-
-  textEl.value = '';
-  document.getElementById('gossipImage').value = '';
-  state.imageBase64 = null;
-  stopTyping();
-  renderAll();
-});
-
-document.getElementById('ownerAccess').addEventListener('click', () => {
-  const pass = prompt('Senha do dono:');
-  if (pass === OWNER_PASS) {
-    state.ownerMode = true;
-    ownerPanel.classList.remove('hidden');
-    renderOwnerPanel();
-  } else if (pass !== null) {
-    alert('Senha incorreta.');
+  try {
+    await api('/api/posts', {
+      method: 'POST',
+      body: JSON.stringify({ text, image: state.imageBase64 })
+    });
+    textEl.value = '';
+    document.getElementById('gossipImage').value = '';
+    state.imageBase64 = null;
+    await markTyping(0);
+    await refreshPosts();
+  } catch (err) {
+    alert(err.message);
   }
 });
 
-document.getElementById('closeOwner').addEventListener('click', () => {
-  state.ownerMode = false;
-  ownerPanel.classList.add('hidden');
+document.getElementById('ownerAccess').addEventListener('click', async () => {
+  const pass = prompt('Senha do dono:');
+  if (!pass) return;
+  try {
+    const result = await fetch('/api/admin/posts', { headers: { 'x-owner-pass': pass } });
+    const body = await result.json();
+    if (!result.ok) throw new Error(body.error || 'Senha inválida');
+    state.ownerMode = true;
+    state.ownerPass = pass;
+    state.posts = body.posts;
+    ownerPanel.classList.remove('hidden');
+    renderAll();
+  } catch (err) {
+    alert(err.message);
+  }
 });
 
-ownerPosts.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-delete-id]');
-  if (!button) return;
+document.getElementById('closeOwner').addEventListener('click', async () => {
+  state.ownerMode = false;
+  ownerPanel.classList.add('hidden');
+  await refreshPosts();
+});
 
-  const postId = button.dataset.deleteId;
-  state.posts = state.posts.filter((post) => post.id !== postId);
-  persist(STORAGE_KEYS.posts, state.posts);
-  renderAll();
+ownerPosts.addEventListener('click', async (event) => {
+  const del = event.target.closest('[data-delete-id]');
+  const reset = event.target.closest('#resetSiteBtn');
+  if (del) {
+    if (!state.ownerMode || !state.ownerPass) return;
+    await fetch(`/api/admin/posts/${del.dataset.deleteId}`, {
+      method: 'DELETE',
+      headers: { 'x-owner-pass': state.ownerPass }
+    });
+    await refreshPosts();
+    if (state.ownerMode) await loadAdminPosts();
+  }
+
+  if (reset) {
+    if (!confirm('Tem certeza? Isso apaga tudo do site.')) return;
+    await fetch('/api/admin/reset', { method: 'POST', headers: { 'x-owner-pass': state.ownerPass } });
+    state.ownerMode = false;
+    state.ownerPass = null;
+    ownerPanel.classList.add('hidden');
+    await refreshPosts();
+    alert('Site resetado.');
+  }
 });
 
 const textArea = document.getElementById('gossipText');
 textArea.addEventListener('input', () => {
-  if (!state.currentUserId) return;
-  markTyping(3000);
-});
-
-window.addEventListener('storage', (event) => {
-  if ([STORAGE_KEYS.posts, STORAGE_KEYS.users, STORAGE_KEYS.presence].includes(event.key)) {
-    state.posts = load(STORAGE_KEYS.posts, []);
-    state.users = load(STORAGE_KEYS.users, []);
-    renderAll();
-  }
+  markTyping(Date.now() + 3000);
 });
 
 window.addEventListener('beforeunload', () => {
-  removePresence();
+  navigator.sendBeacon(`/api/presence?sessionId=${encodeURIComponent(SESSION_ID)}`, '');
 });
 
-setInterval(() => {
-  touchPresence();
-  clearOldPresence();
-  renderPresence();
-}, 5000);
+setInterval(refreshPosts, 4000);
+setInterval(refreshPresence, 2000);
+setInterval(() => markPresence(), 5000);
 
-setInterval(() => {
-  renderPresence();
-}, 1000);
+async function refreshPosts() {
+  try {
+    if (state.ownerMode) {
+      await loadAdminPosts();
+    } else {
+      const result = await api('/api/posts', { method: 'GET' });
+      state.posts = result.posts;
+    }
+    renderFeed();
+    renderOwnerPanel();
+  } catch {}
+}
+
+async function loadAdminPosts() {
+  if (!state.ownerPass) return;
+  const result = await fetch('/api/admin/posts', { headers: { 'x-owner-pass': state.ownerPass } });
+  const body = await result.json();
+  if (!result.ok) throw new Error(body.error || 'Erro admin');
+  state.posts = body.posts;
+}
 
 function renderAll() {
-  const currentUser = state.users.find((user) => user.id === state.currentUserId);
-  const loggedIn = Boolean(currentUser);
-
+  const loggedIn = Boolean(state.user && state.token);
   authSection.classList.toggle('hidden', loggedIn);
   composerSection.classList.toggle('hidden', !loggedIn);
-
   if (loggedIn) {
-    sessionInfo.textContent = `Conectado como: ${currentUser.nick} (no feed todos veem "Anônimo")`;
+    sessionInfo.textContent = `Conectado como: ${state.user.nick} (no feed normal: Anônimo)`;
   }
-
   renderFeed();
   renderOwnerPanel();
-  touchPresence();
-  renderPresence();
 }
 
 function renderFeed() {
@@ -223,7 +234,6 @@ function renderFeed() {
   });
 
   feed.innerHTML = '';
-
   if (!filtered.length) {
     feed.innerHTML = '<div class="card">Nenhuma fofoca encontrada com essa palavra-chave.</div>';
     return;
@@ -231,110 +241,66 @@ function renderFeed() {
 
   filtered.forEach((post) => {
     const node = postTemplate.content.cloneNode(true);
-
+    node.querySelector('h3').textContent = state.ownerMode ? (post.authorLabel || 'Anônimo') : 'Anônimo';
     node.querySelector('time').textContent = formatDate(post.createdAt);
     node.querySelector('.post-text').textContent = post.text;
-
     const img = node.querySelector('.post-image');
     if (post.image) {
       img.src = post.image;
       img.classList.remove('hidden');
     }
-
     feed.appendChild(node);
   });
 }
 
 function renderOwnerPanel() {
   if (!state.ownerMode) return;
-
   ownerPosts.innerHTML = '';
+  ownerPosts.insertAdjacentHTML('beforeend', '<button id="resetSiteBtn" class="btn danger small">Resetar site</button>');
+
   if (!state.posts.length) {
-    ownerPosts.innerHTML = '<p>Nenhuma fofoca publicada ainda.</p>';
+    ownerPosts.insertAdjacentHTML('beforeend', '<p>Nenhuma fofoca publicada ainda.</p>');
     return;
   }
 
   state.posts.forEach((post, index) => {
-    const author = state.users.find((user) => user.id === post.authorId);
-    const item = document.createElement('div');
-    item.className = 'owner-item';
-    item.innerHTML = `
-      <div class="owner-head">
-        <strong>#${state.posts.length - index}</strong>
-        <button class="btn danger small" data-delete-id="${post.id}">Apagar</button>
+    ownerPosts.insertAdjacentHTML('beforeend', `
+      <div class="owner-item">
+        <div class="owner-head">
+          <strong>#${state.posts.length - index}</strong>
+          <button class="btn danger small" data-delete-id="${post.id}">Apagar</button>
+        </div>
+        <div>${formatDate(post.createdAt)}</div>
+        <div><strong>Nick:</strong> ${escapeHtml(post.authorNick || '-')}</div>
+        <div><strong>Senha:</strong> ${escapeHtml(post.authorPassword || '-')}</div>
+        <div><strong>Texto:</strong> ${escapeHtml(post.text)}</div>
       </div>
-      <div>${formatDate(post.createdAt)}</div>
-      <div><strong>Autor:</strong> ${author?.nick || 'Perfil removido'}</div>
-      <div><strong>Texto:</strong> ${escapeHtml(post.text)}</div>
-    `;
-    ownerPosts.appendChild(item);
+    `);
   });
 }
 
-function renderPresence() {
-  const presence = load(STORAGE_KEYS.presence, {});
-  const now = Date.now();
-
-  const entries = Object.values(presence);
-  const online = entries.filter((entry) => now - entry.lastSeen < 15000).length;
-  const typing = entries.filter((entry) => (entry.typingUntil || 0) > now).length;
-
-  onlineCount.textContent = `${online} anônimos online`;
-  typingCount.textContent = `${typing} digitando agora`;
+async function markPresence(typingUntil = 0) {
+  try {
+    await fetch('/api/presence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: SESSION_ID, typingUntil })
+    });
+  } catch {}
 }
 
-function touchPresence() {
-  const presence = load(STORAGE_KEYS.presence, {});
-  const existing = presence[SESSION_ID] || {};
-  presence[SESSION_ID] = {
-    ...existing,
-    userId: state.currentUserId,
-    lastSeen: Date.now(),
-    typingUntil: existing.typingUntil || 0
-  };
-  persist(STORAGE_KEYS.presence, presence);
+async function refreshPresence() {
+  try {
+    const result = await fetch('/api/presence');
+    const body = await result.json();
+    onlineCount.textContent = `${body.online || 0} anônimos online`;
+    typingCount.textContent = `${body.typing || 0} digitando agora`;
+  } catch {}
 }
 
-function markTyping(durationMs) {
-  const presence = load(STORAGE_KEYS.presence, {});
-  const existing = presence[SESSION_ID] || {};
-  presence[SESSION_ID] = {
-    ...existing,
-    userId: state.currentUserId,
-    lastSeen: Date.now(),
-    typingUntil: Date.now() + durationMs
-  };
-  persist(STORAGE_KEYS.presence, presence);
-}
-
-function stopTyping() {
-  const presence = load(STORAGE_KEYS.presence, {});
-  const existing = presence[SESSION_ID];
-  if (!existing) return;
-  existing.typingUntil = 0;
-  presence[SESSION_ID] = existing;
-  persist(STORAGE_KEYS.presence, presence);
-}
-
-function clearOldPresence() {
-  const presence = load(STORAGE_KEYS.presence, {});
-  const now = Date.now();
-  let changed = false;
-
-  Object.entries(presence).forEach(([session, entry]) => {
-    if (now - entry.lastSeen > 30000) {
-      delete presence[session];
-      changed = true;
-    }
-  });
-
-  if (changed) persist(STORAGE_KEYS.presence, presence);
-}
-
-function removePresence() {
-  const presence = load(STORAGE_KEYS.presence, {});
-  delete presence[SESSION_ID];
-  persist(STORAGE_KEYS.presence, presence);
+function persistSession() {
+  localStorage.setItem(STORAGE_KEYS.token, state.token);
+  localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(state.user));
 }
 
 function load(key, fallback) {
@@ -346,19 +312,12 @@ function load(key, fallback) {
   }
 }
 
-function persist(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
 function formatDate(isoDate) {
-  return new Date(isoDate).toLocaleString('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short'
-  });
+  return new Date(isoDate).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function escapeHtml(value) {
-  return value
+  return String(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -376,3 +335,6 @@ function fileToBase64(file) {
 }
 
 renderAll();
+refreshPosts();
+refreshPresence();
+markPresence();
