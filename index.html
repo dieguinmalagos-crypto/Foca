@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fofoca 8°A</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-decoration"></div>
+  <main class="app">
+    <header class="hero">
+      <h1>Fofoca 8°A</h1>
+      <p>Conta tudo... sem mostrar quem você é 👀</p>
+      <div class="status" id="statusBar">
+        <span id="onlineCount">0 anônimos online</span>
+        <span class="dot">•</span>
+        <span id="typingCount">0 digitando agora</span>
+      </div>
+    </header>
+
+    <section class="card auth" id="authSection">
+      <h2>Entrar no mural</h2>
+      <p>Crie seu perfil secreto. Só o dono consegue ver quem enviou no painel privado.</p>
+      <form id="profileForm">
+        <label>
+          Nome do perfil
+          <input type="text" id="profileName" maxlength="30" required placeholder="Ex: Estudante8A" />
+        </label>
+        <label>
+          Foto de perfil (URL opcional)
+          <input type="url" id="profileAvatar" placeholder="https://..." />
+        </label>
+        <button type="submit" class="btn">Entrar como anônimo</button>
+      </form>
+    </section>
+
+    <section class="card hidden" id="composerSection">
+      <div class="user-chip" id="sessionInfo"></div>
+
+      <div class="search-box">
+        <input type="search" id="searchInput" placeholder="Pesquisar por palavra-chave da fofoca..." />
+      </div>
+
+      <form id="gossipForm" class="gossip-form">
+        <label>
+          Nova fofoca
+          <textarea id="gossipText" rows="4" maxlength="500" required placeholder="Escreve aqui o babado do 8°A..."></textarea>
+        </label>
+
+        <label class="file-label">
+          <span>Adicionar foto (opcional)</span>
+          <input type="file" id="gossipImage" accept="image/*" />
+        </label>
+
+        <button type="submit" class="btn">Publicar como Anônimo</button>
+      </form>
+
+      <button id="ownerAccess" class="btn ghost">Acesso do dono</button>
+    </section>
+
+    <section class="feed" id="feed"></section>
+
+    <section class="card hidden" id="ownerPanel">
+      <h2>Painel privado do dono</h2>
+      <p>Aqui aparece quem escreveu cada fofoca.</p>
+      <div id="ownerPosts"></div>
+      <button class="btn ghost" id="closeOwner">Fechar painel</button>
+    </section>
+  </main>
+
+  <template id="postTemplate">
+    <article class="post card">
+      <div class="post-head">
+        <div class="anon-avatar">A</div>
+        <div>
+          <h3>Anônimo</h3>
+          <time></time>
+        </div>
+      </div>
+      <p class="post-text"></p>
+      <img class="post-image hidden" alt="Foto da fofoca" />
+    </article>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
