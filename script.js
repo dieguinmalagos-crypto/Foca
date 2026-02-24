@@ -49,12 +49,45 @@ function readFallbackDb() {
 }
 
 function writeFallbackDb(db) {
+  if (tryPersistFallbackDb(db)) return;
+
+  // 1) Tenta liberar espaço removendo imagens dos posts mais antigos
+  const postsWithImage = db.posts
+    .map((post, index) => ({ index, hasImage: Boolean(post.image), createdAt: post.createdAt }))
+    .filter((entry) => entry.hasImage)
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  for (const entry of postsWithImage) {
+    db.posts[entry.index].image = null;
+    if (tryPersistFallbackDb(db)) {
+      setAuthMessage('Armazenamento local quase cheio: imagens antigas foram removidas para continuar salvando.');
+      return;
+    }
+  }
+
+  // 2) Se ainda estiver lotado, remove posts mais antigos até caber
+  const sortedOldest = db.posts
+    .map((post, index) => ({ index, createdAt: post.createdAt }))
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  for (const entry of sortedOldest) {
+    db.posts[entry.index]._drop = true;
+    db.posts = db.posts.filter((post) => !post._drop);
+    if (tryPersistFallbackDb(db)) {
+      setAuthMessage('Armazenamento local lotado: alguns posts antigos foram removidos automaticamente.');
+      return;
+    }
+  }
+
+  fallbackError('Armazenamento lotado no navegador. Limpe dados do site no navegador ou publique sem imagem.');
+}
+
+function tryPersistFallbackDb(db) {
   try {
     localStorage.setItem(STORAGE_KEYS.fallbackDb, JSON.stringify(db));
+    return true;
   } catch (error) {
-    if (isQuotaExceeded(error)) {
-      fallbackError('Armazenamento lotado no navegador. Tente enviar uma imagem menor ou publique sem foto.');
-    }
+    if (isQuotaExceeded(error)) return false;
     throw error;
   }
 }
@@ -709,7 +742,7 @@ function fileToBase64(file) {
 
         let quality = 0.82;
         let encoded = canvas.toDataURL('image/jpeg', quality);
-        const maxLength = 1_200_000;
+        const maxLength = 450_000;
 
         while (encoded.length > maxLength && quality > 0.4) {
           quality -= 0.08;
