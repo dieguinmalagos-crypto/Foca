@@ -126,10 +126,6 @@ const server = http.createServer(async (req, res) => {
 
       if (!normalizedNick || !normalizedPassword) return json(res, 400, { error: 'Nick e senha obrigatórios.' });
 
-      if (db.users.length === 0 && (normalizedNick !== ADMIN_NICK || normalizedPassword !== ADMIN_PASSWORD)) {
-        return json(res, 403, { error: 'Cadastro indisponível no momento.' });
-      }
-
       const exists = db.users.some((u) => u.nick.toLowerCase() === normalizedNick.toLowerCase());
       if (exists) return json(res, 409, { error: 'Nick já existe.' });
 
@@ -137,7 +133,7 @@ const server = http.createServer(async (req, res) => {
         id: crypto.randomUUID(),
         nick: normalizedNick,
         password: normalizedPassword,
-        isAdmin: db.users.length === 0
+        isAdmin: normalizedNick.toLowerCase() === ADMIN_NICK.toLowerCase() && normalizedPassword === ADMIN_PASSWORD
       };
 
       db.users.push(user);

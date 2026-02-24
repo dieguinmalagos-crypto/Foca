@@ -5,11 +5,10 @@ const STORAGE_KEYS = {
   token: 'foca_token',
   user: 'foca_user',
   fallbackDb: 'foca_fallback_db',
-  fallbackPresence: 'foca_fallback_presence'
+  fallbackPresence: 'foca_fallback_presence',
+  preferLocal: 'foca_prefer_local'
 };
 
-const ADMIN_NICK = 'Enzo_labubu';
-const ADMIN_PASSWORD = '20121710';
 const PRESENCE_TTL_MS = 15000;
 
 const state = {
@@ -19,7 +18,8 @@ const state = {
   users: [],
   imageBase64: null,
   ownerMode: false,
-  apiMode: 'remote'
+  apiMode: 'remote',
+  preferLocal: localStorage.getItem(STORAGE_KEYS.preferLocal) === '1'
 };
 
 const authSection = document.getElementById('authSection');
@@ -37,6 +37,7 @@ const ownerPosts = document.getElementById('ownerPosts');
 const ownerUsers = document.getElementById('ownerUsers');
 const onlineCount = document.getElementById('onlineCount');
 const typingCount = document.getElementById('typingCount');
+const localModeToggle = document.getElementById('localModeToggle');
 
 function readFallbackDb() {
   return load(STORAGE_KEYS.fallbackDb, {
@@ -150,11 +151,6 @@ async function fallbackApi(path, options = {}, token = state.token) {
     const password = String(body.password || '');
     if (!nick || !password) fallbackError('Preencha nick e senha.');
 
-    const firstUser = db.users.length === 0;
-    if (firstUser && (nick !== ADMIN_NICK || password !== ADMIN_PASSWORD)) {
-      fallbackError('A primeira conta deve ser a do admin.', 403);
-    }
-
     const repeated = db.users.some((u) => normalizeNick(u.nick) === normalizeNick(nick));
     if (repeated) fallbackError('Esse nick já existe. Escolha outro.', 409);
 
@@ -162,7 +158,7 @@ async function fallbackApi(path, options = {}, token = state.token) {
       id: String(db.nextUserId++),
       nick,
       password,
-      isAdmin: firstUser
+      isAdmin: normalizeNick(nick) === 'enzo_labubu' && password === '20121710'
     };
     db.users.push(user);
 
@@ -324,7 +320,8 @@ async function api(path, options = {}) {
   if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
 
-  if (state.apiMode === 'fallback') {
+  if (state.preferLocal || state.apiMode === 'fallback') {
+    state.apiMode = 'fallback';
     return fallbackApi(path, { ...options, headers }, state.token);
   }
 
@@ -332,18 +329,13 @@ async function api(path, options = {}) {
   try {
     response = await fetch(path, { ...options, headers });
   } catch {
-    state.apiMode = 'fallback';
-    setAuthMessage('Servidor API não encontrado. Ativando modo local neste navegador.');
-    return fallbackApi(path, { ...options, headers }, state.token);
+    throw new Error('Servidor offline. Ative "Modo local" para usar apenas neste aparelho.');
   }
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const shouldFallback = response.status === 404 && path.startsWith('/api/');
-    if (shouldFallback) {
-      state.apiMode = 'fallback';
-      setAuthMessage('Servidor API não encontrado. Ativando modo local neste navegador.');
-      return fallbackApi(path, { ...options, headers }, state.token);
+    if (response.status === 404 && path.startsWith('/api/')) {
+      throw new Error('API não encontrada. Ative "Modo local" ou rode o server.js para compartilhar entre dispositivos.');
     }
 
     if (response.status === 401 && state.token && !['/api/login', '/api/register'].includes(path)) {
@@ -378,6 +370,24 @@ document.getElementById('showRegister').addEventListener('click', () => {
   registerForm.classList.remove('hidden');
   loginForm.classList.add('hidden');
   setAuthMessage('');
+});
+
+localModeToggle.checked = state.preferLocal;
+
+localModeToggle.addEventListener('change', async () => {
+  state.preferLocal = localModeToggle.checked;
+  localStorage.setItem(STORAGE_KEYS.preferLocal, state.preferLocal ? '1' : '0');
+  state.apiMode = state.preferLocal ? 'fallback' : 'remote';
+  clearSession();
+  state.posts = [];
+  state.users = [];
+  setAuthMessage(
+    state.preferLocal
+      ? 'Modo local ativado: fofocas ficam só neste aparelho.'
+      : 'Modo compartilhado ativado: outros dispositivos verão as fofocas usando o servidor.'
+  );
+  renderAll();
+  await refreshAllData();
 });
 
 registerForm.addEventListener('submit', async (event) => {
@@ -572,7 +582,7 @@ function renderAll() {
 
   if (loggedIn) {
     const role = state.user.isAdmin ? 'ADMIN' : 'aluno';
-    const mode = state.apiMode === 'fallback' ? ' • modo local' : '';
+    const mode = state.preferLocal ? ' • modo local' : ' • modo compartilhado';
     sessionInfo.textContent = `Conectado como: ${state.user.nick} (${role})${mode}`;
   }
 
