@@ -1,4 +1,11 @@
 const SESSION_ID = sessionStorage.getItem('foca_session_id') || crypto.randomUUID();
+const APP_VERSION = '20260224b';
+const LEGACY_KEYS = ['foca_force_first_admin'];
+
+for (const legacyKey of LEGACY_KEYS) {
+  localStorage.removeItem(legacyKey);
+}
+
 sessionStorage.setItem('foca_session_id', SESSION_ID);
 
 const STORAGE_KEYS = {
@@ -40,13 +47,20 @@ const typingCount = document.getElementById('typingCount');
 const localModeToggle = document.getElementById('localModeToggle');
 
 function readFallbackDb() {
-  return load(STORAGE_KEYS.fallbackDb, {
+  const db = load(STORAGE_KEYS.fallbackDb, {
     users: [],
     posts: [],
     tokens: {},
     nextUserId: 1,
     nextPostId: 1
   });
+
+  if (db && typeof db === 'object') {
+    delete db.requireFirstAdmin;
+    delete db.firstAccountMustBeAdmin;
+  }
+
+  return db;
 }
 
 function writeFallbackDb(db) {
