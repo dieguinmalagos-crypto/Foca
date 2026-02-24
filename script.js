@@ -49,7 +49,14 @@ function readFallbackDb() {
 }
 
 function writeFallbackDb(db) {
-  localStorage.setItem(STORAGE_KEYS.fallbackDb, JSON.stringify(db));
+  try {
+    localStorage.setItem(STORAGE_KEYS.fallbackDb, JSON.stringify(db));
+  } catch (error) {
+    if (isQuotaExceeded(error)) {
+      fallbackError('Armazenamento lotado no navegador. Tente enviar uma imagem menor ou publique sem foto.');
+    }
+    throw error;
+  }
 }
 
 function readPresence() {
@@ -390,7 +397,18 @@ searchInput.addEventListener('input', () => renderFeed());
 
 document.getElementById('gossipImage').addEventListener('change', async (event) => {
   const file = event.target.files?.[0];
-  state.imageBase64 = file ? await fileToBase64(file) : null;
+  if (!file) {
+    state.imageBase64 = null;
+    return;
+  }
+
+  try {
+    state.imageBase64 = await fileToBase64(file);
+  } catch (err) {
+    state.imageBase64 = null;
+    event.target.value = '';
+    alert(err.message || 'Não foi possível carregar a imagem.');
+  }
 });
 
 gossipForm.addEventListener('submit', async (event) => {
@@ -615,6 +633,14 @@ async function markPresence(typingUntil = 0) {
   } catch {}
 }
 
+function isQuotaExceeded(error) {
+  return (
+    error?.name === 'QuotaExceededError' ||
+    error?.code === 22 ||
+    error?.code === 1014
+  );
+}
+
 async function refreshPresence() {
   try {
     const body = await api('/api/presence');
@@ -652,9 +678,57 @@ function escapeHtml(value) {
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Selecione um arquivo de imagem válido.'));
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 1280;
+        const maxHeight = 1280;
+        let { width, height } = img;
+
+        const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Falha ao processar a imagem.'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        let quality = 0.82;
+        let encoded = canvas.toDataURL('image/jpeg', quality);
+        const maxLength = 1_200_000;
+
+        while (encoded.length > maxLength && quality > 0.4) {
+          quality -= 0.08;
+          encoded = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        if (encoded.length > maxLength) {
+          reject(new Error('Imagem muito grande. Use uma imagem menor.'));
+          return;
+        }
+
+        resolve(encoded);
+      };
+
+      img.onerror = () => reject(new Error('Não foi possível ler a imagem selecionada.'));
+      img.src = reader.result;
+    };
+
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo de imagem.'));
     reader.readAsDataURL(file);
   });
 }
