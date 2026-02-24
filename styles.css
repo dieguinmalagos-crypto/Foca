@@ -1,0 +1,282 @@
+:root {
+  --bg: #0f1226;
+  --panel: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.18);
+  --text: #f7f8ff;
+  --muted: #c3caef;
+  --accent: #ff4fa3;
+  --accent-2: #7c4dff;
+  --danger: #ff5570;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Poppins', sans-serif;
+  background: radial-gradient(circle at top right, #2a1358, #0a1022 55%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.bg-decoration {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(255, 79, 163, 0.25), transparent 35%),
+    radial-gradient(circle at 90% 30%, rgba(124, 77, 255, 0.2), transparent 40%);
+}
+
+.app {
+  width: min(900px, 92vw);
+  margin: 24px auto 50px;
+  position: relative;
+  z-index: 1;
+}
+
+.hero {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3rem);
+}
+
+.hero p {
+  margin: 8px 0;
+  color: var(--muted);
+}
+
+.status {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  backdrop-filter: blur(10px);
+}
+
+.dot {
+  opacity: 0.6;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.search-card,
+.mode-card,
+.auth,
+#composerSection,
+#ownerPanel {
+  margin-bottom: 16px;
+}
+
+
+.mode-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.mode-toggle input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.auth-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.auth-message {
+  min-height: 22px;
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.composer-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #20193d;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
+textarea {
+  resize: vertical;
+}
+
+.btn {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(130deg, var(--accent), var(--accent-2));
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn.small {
+  padding: 7px 12px;
+  font-size: 0.9rem;
+}
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.btn.danger {
+  background: var(--danger);
+}
+
+.user-chip {
+  display: inline-block;
+  background: rgba(255, 79, 163, 0.2);
+  border: 1px solid rgba(255, 79, 163, 0.5);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+.search-box {
+  margin-bottom: 0;
+}
+
+.feed {
+  display: grid;
+  gap: 14px;
+}
+
+.post-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.anon-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  background: linear-gradient(130deg, #ff74b8, #7c4dff);
+}
+
+.post h3 {
+  margin: 0;
+}
+
+.post time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.post-text {
+  margin: 12px 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.post-image {
+  width: 100%;
+  border-radius: 12px;
+  margin-top: 8px;
+  max-height: 340px;
+  object-fit: cover;
+}
+
+.owner-item {
+  border-top: 1px dashed var(--border);
+  padding: 10px 0;
+}
+
+.owner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 620px) {
+  .status {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .composer-top,
+  .auth-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+
+.admin-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: linear-gradient(130deg, var(--accent), var(--accent-2));
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  z-index: 30;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+}

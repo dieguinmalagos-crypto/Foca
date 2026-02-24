@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fofoca 8°A</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=20260224b" />
+</head>
+<body>
+  <div class="bg-decoration"></div>
+  <main class="app">
+    <header class="hero">
+      <h1>Fofoca 8°A</h1>
+      <p>Conta tudo... sem mostrar quem você é 👀</p>
+      <div class="status" id="statusBar">
+        <span id="onlineCount">0 anônimos online</span>
+        <span class="dot">•</span>
+        <span id="typingCount">0 digitando agora</span>
+      </div>
+    </header>
+
+    <section class="card search-card">
+      <div class="search-box">
+        <input type="search" id="searchInput" placeholder="Pesquisar fofocas por palavra-chave..." />
+      </div>
+    </section>
+
+
+    <section class="card mode-card">
+      <label class="mode-toggle" for="localModeToggle">
+        <input type="checkbox" id="localModeToggle" />
+        <span>Modo local (apenas neste aparelho). Desative para compartilhar fofocas com outros dispositivos.</span>
+      </label>
+    </section>
+
+    <section class="card auth" id="authSection">
+      <h2>Entrar no mural</h2>
+      <p>Para publicar e ver fofocas, use seu nick e senha.</p>
+
+      <div class="auth-actions">
+        <button id="showLogin" class="btn small">Já tenho conta</button>
+        <button id="showRegister" class="btn ghost small">Criar conta</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <label>
+          Nick
+          <input type="text" id="loginNick" maxlength="30" required placeholder="Seu nick" />
+        </label>
+        <label>
+          Senha
+          <input type="password" id="loginPassword" minlength="4" required placeholder="Sua senha" />
+        </label>
+        <button type="submit" class="btn">Entrar</button>
+      </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <label>
+          Nick
+          <input type="text" id="registerNick" maxlength="30" required placeholder="Escolha um nick" />
+        </label>
+        <label>
+          Senha
+          <input type="password" id="registerPassword" minlength="4" required placeholder="Crie uma senha" />
+        </label>
+        <button type="submit" class="btn">Criar conta</button>
+      </form>
+      <p class="auth-message" id="authMessage"></p>
+    </section>
+
+    <section class="card hidden" id="composerSection">
+      <div class="composer-top">
+        <div class="user-chip" id="sessionInfo"></div>
+        <button id="logoutBtn" class="btn ghost small">Sair</button>
+      </div>
+
+      <form id="gossipForm" class="gossip-form">
+        <label>
+          Nova fofoca
+          <textarea id="gossipText" rows="4" maxlength="500" required placeholder="Escreve aqui o babado do 8°A..."></textarea>
+        </label>
+
+        <label class="file-label">
+          <span>Adicionar foto (opcional)</span>
+          <input type="file" id="gossipImage" accept="image/*" />
+        </label>
+
+        <button type="submit" class="btn">Publicar como Anônimo</button>
+      </form>
+    </section>
+
+    <section class="feed" id="feed"></section>
+
+    <section class="card hidden" id="ownerPanel">
+      <h2>Painel privado do dono</h2>
+      <p>Gerencie fofocas e contas.</p>
+      <div id="ownerPosts"></div>
+      <hr>
+      <h3>Contas criadas</h3>
+      <div id="ownerUsers"></div>
+      <button class="btn ghost" id="closeOwner">Fechar painel</button>
+    </section>
+  </main>
+
+  <template id="postTemplate">
+    <article class="post card">
+      <div class="post-head">
+        <div class="anon-avatar">A</div>
+        <div>
+          <h3>Anônimo</h3>
+          <time></time>
+        </div>
+      </div>
+      <p class="post-text"></p>
+      <img class="post-image hidden" alt="Foto da fofoca" />
+    </article>
+  </template>
+
+  <button id="ownerAccess" class="admin-fab" title="Painel do dono">ADM</button>
+
+  <script src="script.js?v=20260224b"></script>
+</body>
+</html>
