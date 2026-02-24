@@ -1,7 +1,16 @@
 const SESSION_ID = sessionStorage.getItem('foca_session_id') || crypto.randomUUID();
 sessionStorage.setItem('foca_session_id', SESSION_ID);
 
-const STORAGE_KEYS = { token: 'foca_token', user: 'foca_user' };
+const STORAGE_KEYS = {
+  token: 'foca_token',
+  user: 'foca_user',
+  fallbackDb: 'foca_fallback_db',
+  fallbackPresence: 'foca_fallback_presence'
+};
+
+const ADMIN_NICK = 'Enzo_labubu';
+const ADMIN_PASSWORD = '20121710';
+const PRESENCE_TTL_MS = 15000;
 
 const state = {
   token: localStorage.getItem(STORAGE_KEYS.token),
@@ -9,7 +18,8 @@ const state = {
   posts: [],
   users: [],
   imageBase64: null,
-  ownerMode: false
+  ownerMode: false,
+  apiMode: 'remote'
 };
 
 const authSection = document.getElementById('authSection');
@@ -28,20 +38,274 @@ const ownerUsers = document.getElementById('ownerUsers');
 const onlineCount = document.getElementById('onlineCount');
 const typingCount = document.getElementById('typingCount');
 
+function readFallbackDb() {
+  return load(STORAGE_KEYS.fallbackDb, {
+    users: [],
+    posts: [],
+    tokens: {},
+    nextUserId: 1,
+    nextPostId: 1
+  });
+}
+
+function writeFallbackDb(db) {
+  localStorage.setItem(STORAGE_KEYS.fallbackDb, JSON.stringify(db));
+}
+
+function readPresence() {
+  return load(STORAGE_KEYS.fallbackPresence, {});
+}
+
+function writePresence(presence) {
+  localStorage.setItem(STORAGE_KEYS.fallbackPresence, JSON.stringify(presence));
+}
+
+function normalizeNick(nick) {
+  return String(nick || '').trim().toLowerCase();
+}
+
+function parseBody(options) {
+  if (!options.body) return {};
+  if (typeof options.body === 'string') {
+    try {
+      return JSON.parse(options.body);
+    } catch {
+      return {};
+    }
+  }
+  return options.body;
+}
+
+function fallbackAuthUser(db, token) {
+  if (!token) return null;
+  const userId = db.tokens[token];
+  if (!userId) return null;
+  return db.users.find((u) => u.id === userId) || null;
+}
+
+function publicPost(post, ownerMode = false) {
+  return {
+    id: post.id,
+    text: post.text,
+    image: post.image || null,
+    createdAt: post.createdAt,
+    authorLabel: ownerMode ? post.authorNick : 'Anônimo',
+    authorNick: ownerMode ? post.authorNick : undefined
+  };
+}
+
+function fallbackError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  throw error;
+}
+
+async function fallbackApi(path, options = {}, token = state.token) {
+  const method = (options.method || 'GET').toUpperCase();
+  const body = parseBody(options);
+  const db = readFallbackDb();
+
+  if (path === '/api/register' && method === 'POST') {
+    const nick = String(body.nick || '').trim();
+    const password = String(body.password || '');
+    if (!nick || !password) fallbackError('Preencha nick e senha.');
+
+    const firstUser = db.users.length === 0;
+    if (firstUser && (nick !== ADMIN_NICK || password !== ADMIN_PASSWORD)) {
+      fallbackError('A primeira conta deve ser a do admin.', 403);
+    }
+
+    const repeated = db.users.some((u) => normalizeNick(u.nick) === normalizeNick(nick));
+    if (repeated) fallbackError('Esse nick já existe. Escolha outro.', 409);
+
+    const user = {
+      id: String(db.nextUserId++),
+      nick,
+      password,
+      isAdmin: firstUser
+    };
+    db.users.push(user);
+
+    const userToken = crypto.randomUUID();
+    db.tokens[userToken] = user.id;
+    writeFallbackDb(db);
+
+    return { token: userToken, user: { id: user.id, nick: user.nick, isAdmin: user.isAdmin } };
+  }
+
+  if (path === '/api/login' && method === 'POST') {
+    const nick = String(body.nick || '').trim();
+    const password = String(body.password || '');
+    const user = db.users.find((u) => normalizeNick(u.nick) === normalizeNick(nick) && u.password === password);
+    if (!user) fallbackError('Nick ou senha inválidos.', 401);
+
+    const userToken = crypto.randomUUID();
+    db.tokens[userToken] = user.id;
+    writeFallbackDb(db);
+    return { token: userToken, user: { id: user.id, nick: user.nick, isAdmin: user.isAdmin } };
+  }
+
+  if (path === '/api/logout' && method === 'POST') {
+    if (token) {
+      delete db.tokens[token];
+      writeFallbackDb(db);
+    }
+    return { ok: true };
+  }
+
+  if (path === '/api/posts' && method === 'GET') {
+    const user = fallbackAuthUser(db, token);
+    if (!user) fallbackError('Faça login para ver as fofocas.', 401);
+
+    const posts = db.posts
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map((post) => publicPost(post, false));
+
+    return { posts };
+  }
+
+  if (path === '/api/posts' && method === 'POST') {
+    const user = fallbackAuthUser(db, token);
+    if (!user) fallbackError('Faça login para publicar.', 401);
+
+    const text = String(body.text || '').trim();
+    if (!text) fallbackError('Digite uma fofoca antes de publicar.');
+
+    const post = {
+      id: String(db.nextPostId++),
+      text,
+      image: body.image || null,
+      createdAt: new Date().toISOString(),
+      authorId: user.id,
+      authorNick: user.nick
+    };
+
+    db.posts.push(post);
+    writeFallbackDb(db);
+    return { ok: true, post: publicPost(post, false) };
+  }
+
+  if (path === '/api/admin/posts' && method === 'GET') {
+    const user = fallbackAuthUser(db, token);
+    if (!user?.isAdmin) fallbackError('Não autorizado.', 401);
+
+    const posts = db.posts
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map((post) => publicPost(post, true));
+
+    return { posts };
+  }
+
+  if (path.startsWith('/api/admin/posts/') && method === 'DELETE') {
+    const user = fallbackAuthUser(db, token);
+    if (!user?.isAdmin) fallbackError('Não autorizado.', 401);
+
+    const postId = path.split('/').pop();
+    db.posts = db.posts.filter((p) => p.id !== postId);
+    writeFallbackDb(db);
+    return { ok: true };
+  }
+
+  if (path === '/api/admin/users' && method === 'GET') {
+    const user = fallbackAuthUser(db, token);
+    if (!user?.isAdmin) fallbackError('Não autorizado.', 401);
+
+    return {
+      users: db.users.map((u) => ({ id: u.id, nick: u.nick, isAdmin: u.isAdmin }))
+    };
+  }
+
+  if (path.startsWith('/api/admin/users/') && method === 'DELETE') {
+    const user = fallbackAuthUser(db, token);
+    if (!user?.isAdmin) fallbackError('Não autorizado.', 401);
+
+    const userId = path.split('/').pop();
+    const target = db.users.find((u) => u.id === userId);
+    if (!target || target.isAdmin) fallbackError('Conta inválida para banimento.', 400);
+
+    db.users = db.users.filter((u) => u.id !== userId);
+    db.posts = db.posts.filter((p) => p.authorId !== userId);
+
+    Object.keys(db.tokens).forEach((existingToken) => {
+      if (db.tokens[existingToken] === userId) {
+        delete db.tokens[existingToken];
+      }
+    });
+
+    writeFallbackDb(db);
+    return { ok: true };
+  }
+
+  if (path === '/api/admin/reset' && method === 'POST') {
+    const user = fallbackAuthUser(db, token);
+    if (!user?.isAdmin) fallbackError('Não autorizado.', 401);
+
+    writeFallbackDb({ users: [], posts: [], tokens: {}, nextUserId: 1, nextPostId: 1 });
+    writePresence({});
+    return { ok: true };
+  }
+
+  if (path === '/api/presence' && method === 'GET') {
+    const now = Date.now();
+    const presence = readPresence();
+    const clean = {};
+
+    Object.entries(presence).forEach(([id, value]) => {
+      if (value.seenAt && now - value.seenAt < PRESENCE_TTL_MS) clean[id] = value;
+    });
+
+    writePresence(clean);
+    const online = Object.keys(clean).length;
+    const typing = Object.values(clean).filter((entry) => (entry.typingUntil || 0) > now).length;
+    return { online, typing };
+  }
+
+  if (path === '/api/presence' && method === 'POST') {
+    const payload = body || {};
+    const sessionId = payload.sessionId || SESSION_ID;
+    const presence = readPresence();
+
+    presence[sessionId] = {
+      seenAt: Date.now(),
+      typingUntil: payload.typingUntil || 0
+    };
+
+    writePresence(presence);
+    return { ok: true };
+  }
+
+  fallbackError('Recurso não encontrado.', 404);
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
 
+  if (state.apiMode === 'fallback') {
+    return fallbackApi(path, { ...options, headers }, state.token);
+  }
+
   let response;
   try {
     response = await fetch(path, { ...options, headers });
   } catch {
-    throw new Error('Falha de conexão. Inicie com: node server.js');
+    state.apiMode = 'fallback';
+    setAuthMessage('Servidor API não encontrado. Ativando modo local neste navegador.');
+    return fallbackApi(path, { ...options, headers }, state.token);
   }
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    const shouldFallback = response.status === 404 && path.startsWith('/api/');
+    if (shouldFallback) {
+      state.apiMode = 'fallback';
+      setAuthMessage('Servidor API não encontrado. Ativando modo local neste navegador.');
+      return fallbackApi(path, { ...options, headers }, state.token);
+    }
+
     if (response.status === 401 && state.token && !['/api/login', '/api/register'].includes(path)) {
       clearSession();
       renderAll();
@@ -257,7 +521,8 @@ function renderAll() {
 
   if (loggedIn) {
     const role = state.user.isAdmin ? 'ADMIN' : 'aluno';
-    sessionInfo.textContent = `Conectado como: ${state.user.nick} (${role})`;
+    const mode = state.apiMode === 'fallback' ? ' • modo local' : '';
+    sessionInfo.textContent = `Conectado como: ${state.user.nick} (${role})${mode}`;
   }
 
   renderFeed();
@@ -343,9 +608,8 @@ function renderOwnerPanel() {
 
 async function markPresence(typingUntil = 0) {
   try {
-    await fetch('/api/presence', {
+    await api('/api/presence', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: SESSION_ID, typingUntil })
     });
   } catch {}
@@ -353,8 +617,7 @@ async function markPresence(typingUntil = 0) {
 
 async function refreshPresence() {
   try {
-    const result = await fetch('/api/presence');
-    const body = await result.json();
+    const body = await api('/api/presence');
     onlineCount.textContent = `${body.online || 0} anônimos online`;
     typingCount.textContent = `${body.typing || 0} digitando agora`;
   } catch {}
